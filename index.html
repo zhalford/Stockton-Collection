@@ -69,6 +69,41 @@
             display: none;
         }
 
+        .share-section {
+            background: linear-gradient(135deg, rgba(0, 71, 27, 0.2), rgba(249, 166, 2, 0.1));
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+            text-align: center;
+            border: 1px solid rgba(0, 71, 27, 0.3);
+        }
+
+        .share-section.hidden {
+            display: none;
+        }
+
+        .share-link {
+            background: rgba(93, 46, 145, 0.2);
+            padding: 10px;
+            border-radius: 5px;
+            word-break: break-all;
+            margin: 10px 0;
+            font-family: monospace;
+        }
+
+        .public-notice {
+            background: linear-gradient(135deg, rgba(0, 71, 27, 0.3), rgba(249, 166, 2, 0.2));
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+            text-align: center;
+            border: 1px solid rgba(0, 71, 27, 0.5);
+        }
+
+        .public-notice.hidden {
+            display: none;
+        }
+
         .header {
             text-align: center;
             margin-bottom: 40px;
@@ -286,6 +321,11 @@
             transform: scale(0.98);
         }
 
+        .status-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
         .hidden {
             display: none;
         }
@@ -361,6 +401,12 @@
             <button id="signInBtn" class="auth-button">Sign in with Google</button>
         </div>
 
+        <!-- Public Notice -->
+        <div id="publicNotice" class="public-notice hidden">
+            <h3>📖 Public Collection View</h3>
+            <p>You're viewing a read-only collection. Sign in to create your own tracker!</p>
+        </div>
+
         <!-- User Info Section -->
         <div id="userInfo" class="user-info hidden">
             <div>
@@ -370,6 +416,14 @@
                 </div>
             </div>
             <button id="signOutBtn" class="auth-button">Sign Out</button>
+        </div>
+
+        <!-- Share Section -->
+        <div id="shareSection" class="share-section hidden">
+            <h3>📤 Share Your Collection</h3>
+            <p>Anyone with this link can view your collection (read-only):</p>
+            <div class="share-link" id="shareLink">Loading share link...</div>
+            <button class="auth-button" onclick="copyShareLink()">📋 Copy Link</button>
         </div>
 
         <div class="header">
@@ -404,7 +458,7 @@
         </div>
 
         <div id="collection">
-            <div class="loading">Loading your collection...</div>
+            <div class="loading">Loading collection...</div>
         </div>
     </div>
 
@@ -415,16 +469,17 @@
 
     <!-- Firebase SDK -->
     <script type="module">
-        // Import Firebase modules
+        // Import Firebase modules - CHANGED TO REALTIME DATABASE
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
         import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
-        import { getFirestore, doc, setDoc, getDoc, updateDoc } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
-        import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js';
+        import { getDatabase, ref, set, get, update, push } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
+        import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js';
 
-        // Firebase configuration - UPDATED WITH YOUR ACTUAL CONFIG
+        // Firebase configuration
         const firebaseConfig = {
             apiKey: "AIzaSyAniNGhjcBl0ktM4Mkxkz_Humv9t8Hnc_k",
             authDomain: "ruby-collection.firebaseapp.com",
+            databaseURL: "https://ruby-collection-default-rtdb.firebaseio.com",
             projectId: "ruby-collection",
             storageBucket: "ruby-collection.firebasestorage.app",
             messagingSenderId: "508190984",
@@ -434,13 +489,15 @@
         // Initialize Firebase
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
-        const db = getFirestore(app);
+        const database = getDatabase(app); // CHANGED FROM getFirestore
         const storage = getStorage(app);
 
         // Global variables
         let currentUser = null;
         let cardStatuses = {};
         let cardImages = {};
+        let isPublicView = false;
+        let ownerUserId = null; // For public view
 
         const cardData = [
             // 2012-13 Panini Flawless Basketball (4 cards)
@@ -529,12 +586,29 @@
         // DOM Elements
         const authSection = document.getElementById('authSection');
         const userInfo = document.getElementById('userInfo');
+        const publicNotice = document.getElementById('publicNotice');
+        const shareSection = document.getElementById('shareSection');
         const signInBtn = document.getElementById('signInBtn');
         const signOutBtn = document.getElementById('signOutBtn');
         const userName = document.getElementById('userName');
         const syncStatus = document.getElementById('syncStatus');
         const syncIndicator = document.getElementById('syncIndicator');
+        const shareLink = document.getElementById('shareLink');
         const collection = document.getElementById('collection');
+
+        // Check for URL parameters for public viewing
+        function checkForPublicView() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const publicUserId = urlParams.get('user');
+            
+            if (publicUserId) {
+                isPublicView = true;
+                ownerUserId = publicUserId;
+                console.log('Public view detected for user:', publicUserId);
+                return true;
+            }
+            return false;
+        }
 
         // Authentication functions
         signInBtn.addEventListener('click', async () => {
@@ -557,35 +631,70 @@
 
         // Auth state observer
         onAuthStateChanged(auth, async (user) => {
+            console.log('Auth state changed:', user ? 'signed in' : 'signed out');
+            
             if (user) {
                 currentUser = user;
+                isPublicView = false; // Override public view if user signs in
                 authSection.classList.add('hidden');
                 userInfo.classList.remove('hidden');
+                shareSection.classList.remove('hidden');
+                publicNotice.classList.add('hidden');
                 userName.textContent = user.displayName || user.email;
+                
+                // Update share link
+                const baseUrl = window.location.origin + window.location.pathname;
+                shareLink.textContent = `${baseUrl}?user=${user.uid}`;
                 
                 // Load user data
                 await loadUserData();
                 initializeCollection();
             } else {
                 currentUser = null;
-                authSection.classList.remove('hidden');
-                userInfo.classList.add('hidden');
-                collection.innerHTML = '<div class="loading">Please sign in to access your collection...</div>';
+                
+                // Check if this is a public view
+                if (checkForPublicView()) {
+                    console.log('Loading public collection for user:', ownerUserId);
+                    authSection.classList.remove('hidden');
+                    userInfo.classList.add('hidden');
+                    shareSection.classList.add('hidden');
+                    publicNotice.classList.remove('hidden');
+                    
+                    // Load public data
+                    await loadPublicData();
+                    initializeCollection();
+                } else {
+                    authSection.classList.remove('hidden');
+                    userInfo.classList.add('hidden');
+                    shareSection.classList.add('hidden');
+                    publicNotice.classList.add('hidden');
+                    collection.innerHTML = '<div class="loading">Please sign in to access your collection...</div>';
+                }
             }
         });
 
-        // Firebase data functions
+        // Firebase data functions - UPDATED FOR REALTIME DATABASE
         async function loadUserData() {
             if (!currentUser) return;
             
+            console.log('Loading user data for:', currentUser.uid);
             showSyncIndicator('Loading...');
             try {
-                const userDoc = await getDoc(doc(db, 'collections', currentUser.uid));
-                if (userDoc.exists()) {
-                    const data = userDoc.data();
+                // Load from private user data
+                const userRef = ref(database, `users/${currentUser.uid}`);
+                const snapshot = await get(userRef);
+                
+                if (snapshot.exists()) {
+                    const data = snapshot.val();
                     cardStatuses = data.cardStatuses || {};
                     cardImages = data.cardImages || {};
+                    console.log('Loaded user data:', { cardStatuses, cardImages });
+                } else {
+                    console.log('No existing user data found');
+                    cardStatuses = {};
+                    cardImages = {};
                 }
+                
                 hideSyncIndicator();
                 updateStats();
             } catch (error) {
@@ -594,17 +703,57 @@
             }
         }
 
+        async function loadPublicData() {
+            if (!ownerUserId) return;
+            
+            console.log('Loading public data for:', ownerUserId);
+            showSyncIndicator('Loading public collection...');
+            try {
+                // Load from public collections
+                const publicRef = ref(database, `publicCollections/${ownerUserId}`);
+                const snapshot = await get(publicRef);
+                
+                if (snapshot.exists()) {
+                    const data = snapshot.val();
+                    cardStatuses = data.cardStatuses || {};
+                    cardImages = data.cardImages || {};
+                    console.log('Loaded public data:', { cardStatuses, cardImages });
+                } else {
+                    console.log('No public collection found for user:', ownerUserId);
+                    cardStatuses = {};
+                    cardImages = {};
+                }
+                
+                hideSyncIndicator();
+                updateStats();
+            } catch (error) {
+                console.error('Error loading public data:', error);
+                showSyncIndicator('Error loading public collection', 'error');
+                setTimeout(() => {
+                    collection.innerHTML = '<div class="loading">Unable to load public collection. Please try again later.</div>';
+                }, 2000);
+            }
+        }
+
         async function saveUserData() {
             if (!currentUser) return;
             
+            console.log('Saving user data...');
             showSyncIndicator('Syncing...');
             try {
-                await setDoc(doc(db, 'collections', currentUser.uid), {
+                const userData = {
                     cardStatuses: cardStatuses,
                     cardImages: cardImages,
-                    lastUpdated: new Date()
-                }, { merge: true });
+                    lastUpdated: new Date().toISOString()
+                };
+
+                // Save to private user data
+                await set(ref(database, `users/${currentUser.uid}`), userData);
                 
+                // Also save to public collection for sharing
+                await set(ref(database, `publicCollections/${currentUser.uid}`), userData);
+                
+                console.log('Data saved successfully');
                 showSyncIndicator('Synced', 'synced');
                 setTimeout(hideSyncIndicator, 2000);
             } catch (error) {
@@ -616,15 +765,24 @@
         async function uploadImage(file, cardId) {
             if (!currentUser) return null;
             
+            console.log('Uploading image for card:', cardId);
             showSyncIndicator('Uploading image...');
             try {
-                const imageRef = ref(storage, `images/${currentUser.uid}/${cardId}`);
-                await uploadBytes(imageRef, file);
-                const downloadURL = await getDownloadURL(imageRef);
+                // Upload to both private and public storage
+                const privateImageRef = storageRef(storage, `images/${currentUser.uid}/${cardId}`);
+                const publicImageRef = storageRef(storage, `publicImages/${currentUser.uid}/${cardId}`);
+                
+                // Upload to both locations
+                await uploadBytes(privateImageRef, file);
+                await uploadBytes(publicImageRef, file);
+                
+                // Get public URL for sharing
+                const downloadURL = await getDownloadURL(publicImageRef);
                 
                 cardImages[cardId] = downloadURL;
                 await saveUserData();
                 
+                console.log('Image uploaded successfully:', downloadURL);
                 return downloadURL;
             } catch (error) {
                 console.error('Error uploading image:', error);
@@ -644,8 +802,26 @@
             syncIndicator.classList.add('hidden');
         }
 
+        // Share functionality
+        window.copyShareLink = function() {
+            const linkText = shareLink.textContent;
+            navigator.clipboard.writeText(linkText).then(() => {
+                alert('Share link copied to clipboard!');
+            }).catch(() => {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = linkText;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                alert('Share link copied to clipboard!');
+            });
+        };
+
         // Collection functions
         function initializeCollection() {
+            console.log('Initializing collection...');
             const yearGroups = {};
             
             // Group cards by year
@@ -678,32 +854,37 @@
             
             collection.innerHTML = html;
             updateStats();
+            console.log('Collection initialized');
         }
 
         function createCardHTML(card) {
             const status = cardStatuses[card.id] || 'none';
             const imageUrl = cardImages[card.id];
+            const isEditable = !isPublicView && currentUser; // Only editable if signed in and not public view
             
             return `
                 <div class="card-item ${status}" data-status="${status}" data-id="${card.id}">
-                    <div class="card-image ${imageUrl ? 'has-image' : ''}" onclick="triggerImageUpload(${card.id})">
+                    <div class="card-image ${imageUrl ? 'has-image' : ''}" ${isEditable ? `onclick="triggerImageUpload(${card.id})"` : ''}>
                         <div id="image-${card.id}">
-                            ${imageUrl ? `<img src="${imageUrl}" alt="Card Image">` : 'Click to add card image'}
+                            ${imageUrl ? `<img src="${imageUrl}" alt="Card Image">` : (isEditable ? 'Click to add card image' : 'No image available')}
                         </div>
-                        <input type="file" class="image-upload" id="upload-${card.id}" accept="image/*" onchange="handleImageUpload(event, ${card.id})">
+                        ${isEditable ? `<input type="file" class="image-upload" id="upload-${card.id}" accept="image/*" onchange="handleImageUpload(event, ${card.id})">` : ''}
                     </div>
                     <div class="card-info">
                         <div class="card-number">${card.number} ${card.print}</div>
                         <h3>${card.name}</h3>
                         <div class="card-details">${card.type}</div>
                         <div class="status-controls">
-                            <button class="status-btn ${status === 'owned' ? 'owned' : 'none'}" onclick="setStatus(${card.id}, 'owned')">
+                            <button class="status-btn ${status === 'owned' ? 'owned' : 'none'}" 
+                                    ${isEditable ? `onclick="setStatus(${card.id}, 'owned')"` : 'disabled'}>
                                 ✓ Owned
                             </button>
-                            <button class="status-btn ${status === 'wanted' ? 'wanted' : 'none'}" onclick="setStatus(${card.id}, 'wanted')">
+                            <button class="status-btn ${status === 'wanted' ? 'wanted' : 'none'}" 
+                                    ${isEditable ? `onclick="setStatus(${card.id}, 'wanted')"` : 'disabled'}>
                                 ⭐ Want
                             </button>
-                            <button class="status-btn ${status === 'none' ? 'none' : 'none'}" onclick="setStatus(${card.id}, 'none')">
+                            <button class="status-btn ${status === 'none' ? 'none' : 'none'}" 
+                                    ${isEditable ? `onclick="setStatus(${card.id}, 'none')"` : 'disabled'}>
                                 Clear
                             </button>
                         </div>
@@ -714,7 +895,7 @@
 
         // Global functions (needed for onclick handlers)
         window.triggerImageUpload = function(cardId) {
-            if (!currentUser) {
+            if (!currentUser || isPublicView) {
                 alert('Please sign in to upload images');
                 return;
             }
@@ -723,7 +904,7 @@
 
         window.handleImageUpload = async function(event, cardId) {
             const file = event.target.files[0];
-            if (file && currentUser) {
+            if (file && currentUser && !isPublicView) {
                 const imageUrl = await uploadImage(file, cardId);
                 if (imageUrl) {
                     const imageContainer = document.getElementById(`image-${cardId}`);
@@ -736,7 +917,7 @@
         };
 
         window.setStatus = async function(cardId, status) {
-            if (!currentUser) {
+            if (!currentUser || isPublicView) {
                 alert('Please sign in to update card status');
                 return;
             }
@@ -801,7 +982,8 @@
 
         // Initialize when DOM loads
         document.addEventListener('DOMContentLoaded', () => {
-            // Firebase will handle initialization through auth state change
+            console.log('DOM loaded, checking for public view...');
+            // Auth state observer will handle initialization
         });
     </script>
 </body>
