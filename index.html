@@ -394,23 +394,15 @@
 </head>
 <body>
     <div class="container">
-        <!-- Authentication Section -->
-        <div id="authSection" class="auth-section">
-            <h2>🏀 Welcome to Your Stockton Collection</h2>
-            <p>Sign in to save your collection progress and images permanently</p>
-            <button id="signInBtn" class="auth-button">Sign in with Google</button>
+        <div class="header">
+            <h1 id="collectionTitle">🏀 Welcome to Zac's Collection of John Stockton Flawless Ruby Cards</h1>
+            <p>A Complete Checklist of 2012 through 2024 Flawless Ruby Cards</p>
         </div>
 
-        <!-- Public Notice -->
-        <div id="publicNotice" class="public-notice hidden">
-            <h3>📖 Public Collection View</h3>
-            <p>You're viewing a read-only collection. Sign in to create your own tracker!</p>
-        </div>
-
-        <!-- User Info Section -->
+        <!-- User Info Section (for signed in users) -->
         <div id="userInfo" class="user-info hidden">
             <div>
-                <span>👋 Welcome, <span id="userName"></span></span>
+                <span>👋 Welcome back, <span id="userName"></span></span>
                 <div style="font-size: 0.8rem; opacity: 0.8; margin-top: 5px;">
                     <span id="syncStatus">All data synced to cloud</span>
                 </div>
@@ -418,17 +410,12 @@
             <button id="signOutBtn" class="auth-button">Sign Out</button>
         </div>
 
-        <!-- Share Section -->
+        <!-- Share Section (for signed in users) -->
         <div id="shareSection" class="share-section hidden">
             <h3>📤 Share Your Collection</h3>
             <p>Anyone with this link can view your collection (read-only):</p>
             <div class="share-link" id="shareLink">Loading share link...</div>
             <button class="auth-button" onclick="copyShareLink()">📋 Copy Link</button>
-        </div>
-
-        <div class="header">
-            <h1>🏀 John Stockton Flawless Ruby Collection</h1>
-            <p>Complete Checklist (2012-2024) • Limited to 15 copies each</p>
         </div>
 
         <div class="stats">
@@ -459,6 +446,13 @@
 
         <div id="collection">
             <div class="loading">Loading collection...</div>
+        </div>
+
+        <!-- Authentication Section - Moved to Bottom -->
+        <div id="authSection" class="auth-section">
+            <h2>🔥 Want to Create Your Own Collection Tracker?</h2>
+            <p>Sign in to build and share your own card collection with automatic cloud sync</p>
+            <button id="signInBtn" class="auth-button">Sign in with Google to Get Started</button>
         </div>
     </div>
 
@@ -584,10 +578,9 @@
         ];
 
         // DOM Elements
-        const authSection = document.getElementById('authSection');
         const userInfo = document.getElementById('userInfo');
-        const publicNotice = document.getElementById('publicNotice');
         const shareSection = document.getElementById('shareSection');
+        const authSection = document.getElementById('authSection');
         const signInBtn = document.getElementById('signInBtn');
         const signOutBtn = document.getElementById('signOutBtn');
         const userName = document.getElementById('userName');
@@ -595,6 +588,7 @@
         const syncIndicator = document.getElementById('syncIndicator');
         const shareLink = document.getElementById('shareLink');
         const collection = document.getElementById('collection');
+        const collectionTitle = document.getElementById('collectionTitle');
 
         // Check for URL parameters for public viewing
         function checkForPublicView() {
@@ -634,41 +628,51 @@
             console.log('Auth state changed:', user ? 'signed in' : 'signed out');
             
             if (user) {
+                // User is signed in - show their personal collection
                 currentUser = user;
-                isPublicView = false; // Override public view if user signs in
-                authSection.classList.add('hidden');
+                isPublicView = false;
                 userInfo.classList.remove('hidden');
                 shareSection.classList.remove('hidden');
-                publicNotice.classList.add('hidden');
+                authSection.classList.add('hidden');
                 userName.textContent = user.displayName || user.email;
+                
+                // Update header for personal collection
+                collectionTitle.textContent = "🏀 Your Collection of John Stockton Flawless Ruby Cards";
                 
                 // Update share link
                 const baseUrl = window.location.origin + window.location.pathname;
                 shareLink.textContent = `${baseUrl}?user=${user.uid}`;
                 
-                // Load user data
+                // Load user's personal data
                 await loadUserData();
                 initializeCollection();
             } else {
+                // User not signed in
                 currentUser = null;
+                userInfo.classList.add('hidden');
+                shareSection.classList.add('hidden');
+                authSection.classList.remove('hidden');
                 
                 // Check if this is a public view
                 if (checkForPublicView()) {
                     console.log('Loading public collection for user:', ownerUserId);
-                    authSection.classList.remove('hidden');
-                    userInfo.classList.add('hidden');
-                    shareSection.classList.add('hidden');
-                    publicNotice.classList.remove('hidden');
+                    
+                    // Update header for public view
+                    collectionTitle.textContent = "🏀 Welcome to Zac's Collection of John Stockton Flawless Ruby Cards";
                     
                     // Load public data
                     await loadPublicData();
                     initializeCollection();
                 } else {
-                    authSection.classList.remove('hidden');
-                    userInfo.classList.add('hidden');
-                    shareSection.classList.add('hidden');
-                    publicNotice.classList.add('hidden');
-                    collection.innerHTML = '<div class="loading">Please sign in to access your collection...</div>';
+                    // Default view - show Zac's collection as example
+                    collectionTitle.textContent = "🏀 Welcome to Zac's Collection of John Stockton Flawless Ruby Cards";
+                    collection.innerHTML = '<div class="loading">Loading example collection...</div>';
+                    
+                    // You could load a default/demo collection here
+                    // For now, just show empty collection
+                    cardStatuses = {};
+                    cardImages = {};
+                    initializeCollection();
                 }
             }
         });
